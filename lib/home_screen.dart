@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
 import 'package:provider/provider.dart';
+import 'profile_screen.dart';
 import 'search_screen.dart';
 import 'region_provider.dart';
 
@@ -685,9 +686,17 @@ class _HomeScreenState extends State<HomeScreen> {
         unselectedItemColor: Colors.grey,
         selectedFontSize: 12,
         unselectedFontSize: 12,
-        items: [
-          const BottomNavigationBarItem(icon: Icon(Icons.home), label: "হোম"),
-          const BottomNavigationBarItem(icon: Icon(Icons.person_outline), label: "প্রোফাইল"),
+        onTap: (index) {
+          if (index == 1) {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const ProfileScreen()),
+            );
+          }
+        },
+        items: const [
+          BottomNavigationBarItem(icon: Icon(Icons.home), label: "হোম"),
+          BottomNavigationBarItem(icon: Icon(Icons.person_outline), label: "প্রোফাইল"),
         ],
       ),
     );

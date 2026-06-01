@@ -3,11 +3,15 @@ import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'auth/login_screen.dart';
 import 'region_provider.dart';
-////any changes
-///fgfxhvbvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvgfgdyfgdfjdrfgdyfdhv
-void main() async {
 
-  await Supabase.initialize(url: 'https://hxjkomcynnbardxmooew.supabase.co', anonKey: 'sb_publishable_crNXvspOSPLc30yQHnWcoA_Ze8AwSDL');
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  
+  await Supabase.initialize(
+    url: 'https://hxjkomcynnbardxmooew.supabase.co', 
+    anonKey: 'sb_publishable_crNXvspOSPLc30yQHnWcoA_Ze8AwSDL'
+  );
+
   runApp(
     MultiProvider(
       providers: [
@@ -35,4 +39,4 @@ class ConsumerGuardianApp extends StatelessWidget {
     );
   }
 }
-//gffffffffffffffffffffffffffffvvhdf
+//ami argho

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../home_screen.dart';
+import 'forgot_password_screen.dart';
 import 'signup_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -27,9 +28,20 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() {
       loading = true;
     });
+
+    // Format phone number to E.164 (Bangladesh +88)
+    String phoneNumber = _phoneController.text.trim();
+    if (!phoneNumber.startsWith('+')) {
+      if (phoneNumber.startsWith('0')) {
+        phoneNumber = '+88$phoneNumber';
+      } else {
+        phoneNumber = '+880$phoneNumber';
+      }
+    }
+
     try {
       final result = await supabase.auth.signInWithPassword(
-        phone: _phoneController.text,
+        phone: phoneNumber,
         password: _passwordController.text,
       );
       if (result.user != null && result.session != null) {
@@ -192,7 +204,12 @@ class _LoginScreenState extends State<LoginScreen> {
                   Align(
                     alignment: Alignment.centerRight,
                     child: TextButton(
-                      onPressed: () {},
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (context) => const ForgotPasswordScreen()),
+                        );
+                      },
                       child: const Text(
                         "পাসওয়ার্ড ভুলে গেছেন?",
                         style: TextStyle(color: Color(0xFF1B5E20), fontSize: 13, fontWeight: FontWeight.bold),

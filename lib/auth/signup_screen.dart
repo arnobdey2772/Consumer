@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:flutter_otp_text_field/flutter_otp_text_field.dart';
 import '../home_screen.dart';
 import 'login_screen.dart';
 
@@ -14,6 +15,7 @@ class _SignupScreenState extends State<SignupScreen> {
   final supabase = Supabase.instance.client;
   int _currentStep = 1;
   bool _isLoading = false;
+  String _tempPhoneNumber = "";
 
   // Controllers for Step 1
   final TextEditingController _nameBnController = TextEditingController();
@@ -57,7 +59,7 @@ class _SignupScreenState extends State<SignupScreen> {
       }
     }
     setState(() {
-      if (_currentStep < 3) {
+      if (_currentStep < 4) {
         _currentStep++;
       }
     });
@@ -80,9 +82,21 @@ class _SignupScreenState extends State<SignupScreen> {
 
     setState(() => _isLoading = true);
 
+    // Format phone number to E.164 (Bangladesh +88)
+    String phoneNumber = _phoneController.text.trim();
+    if (!phoneNumber.startsWith('+')) {
+      if (phoneNumber.startsWith('0')) {
+        phoneNumber = '+88$phoneNumber';
+      } else {
+        phoneNumber = '+880$phoneNumber';
+      }
+    }
+    _tempPhoneNumber = phoneNumber;
+
     try {
-      final response = await supabase.auth.signUp(
-        phone: _phoneController.text,
+      // Step 1: Sign up user. This will trigger OTP if configured in Supabase.
+      await supabase.auth.signUp(
+        phone: phoneNumber,
         password: _passwordController.text,
         data: {
           'full_name_bn': _nameBnController.text,
@@ -96,15 +110,40 @@ class _SignupScreenState extends State<SignupScreen> {
         },
       );
 
-      if (response.user != null) {
+      // Transition to OTP Step
+      setState(() {
+        _currentStep = 3;
+      });
+      
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("রেজিস্ট্রেশন ব্যর্থ হয়েছে: ${e.toString()}")),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _verifyOtp(String otpCode) async {
+    setState(() => _isLoading = true);
+    try {
+      final response = await supabase.auth.verifyOTP(
+        phone: _tempPhoneNumber,
+        token: otpCode,
+        type: OtpType.sms,
+      );
+
+      if (response.session != null) {
         setState(() {
-          _currentStep = 3;
+          _currentStep = 4; // Move to Success Step
         });
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("রেজিস্ট্রেশন ব্যর্থ হয়েছে: ${e.toString()}")),
+          SnackBar(content: Text("ওটিপি সঠিক নয়: ${e.toString()}")),
         );
       }
     } finally {
@@ -119,7 +158,7 @@ class _SignupScreenState extends State<SignupScreen> {
       appBar: AppBar(
         backgroundColor: Colors.white,
         elevation: 0,
-        leading: _currentStep < 3
+        leading: _currentStep < 4
             ? IconButton(
                 icon: const Icon(Icons.arrow_back, color: Colors.black),
                 onPressed: () {
@@ -132,7 +171,7 @@ class _SignupScreenState extends State<SignupScreen> {
               )
             : null,
         title: Text(
-          _currentStep == 1 ? "ব্যক্তিগত তথ্য" : (_currentStep == 2 ? "যোগাযোগ ও নিরাপত্তা" : "সম্পন্ন"),
+          _currentStep == 1 ? "ব্যক্তিগত তথ্য" : (_currentStep == 2 ? "যোগাযোগ ও নিরাপত্তা" : (_currentStep == 3 ? "ভেরিফিকেশন" : "সম্পন্ন")),
           style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 18),
         ),
         centerTitle: true,
@@ -140,23 +179,26 @@ class _SignupScreenState extends State<SignupScreen> {
       body: SingleChildScrollView(
         child: Column(
           children: [
-            if (_currentStep < 3)
+            if (_currentStep < 4)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 10),
                 child: Row(
                   children: [
                     _buildStepCircle(1, "ব্যক্তিগত", _currentStep >= 1),
                     _buildStepLine(_currentStep >= 2),
-                    _buildStepCircle(2, "যোগাযোগ", _currentStep >= 2),
+                    _buildStepCircle(2, "নিরাপত্তা", _currentStep >= 2),
                     _buildStepLine(_currentStep >= 3),
-                    _buildStepCircle(3, "সম্পন্ন", _currentStep >= 3),
+                    _buildStepCircle(3, "ওটিপি", _currentStep >= 3),
+                    _buildStepLine(_currentStep >= 4),
+                    _buildStepCircle(4, "সম্পন্ন", _currentStep >= 4),
                   ],
                 ),
               ),
             const SizedBox(height: 20),
             if (_currentStep == 1) _buildStep1(),
             if (_currentStep == 2) _buildStep2(),
-            if (_currentStep == 3) _buildStep3(),
+            if (_currentStep == 3) _buildStepOtp(),
+            if (_currentStep == 4) _buildStepSuccess(),
             const SizedBox(height: 20),
             if (_currentStep < 3)
               Padding(
@@ -193,6 +235,55 @@ class _SignupScreenState extends State<SignupScreen> {
             const SizedBox(height: 30),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildStepOtp() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Column(
+        children: [
+          Center(
+            child: Column(
+              children: [
+                Icon(Icons.vibration_outlined, size: 80, color: Colors.green.shade700),
+                const SizedBox(height: 10),
+                const Text("আপনার ফোন চেক করুন", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 5),
+                Text("$_tempPhoneNumber নম্বরে একটি ওটিপি পাঠানো হয়েছে", 
+                   textAlign: TextAlign.center,
+                   style: const TextStyle(color: Colors.grey, fontSize: 13)),
+              ],
+            ),
+          ),
+          const SizedBox(height: 40),
+          OtpTextField(
+            numberOfFields: 6,
+            borderColor: const Color(0xFF1B5E20),
+            focusedBorderColor: const Color(0xFF1B5E20),
+            showFieldAsBox: true,
+            onSubmit: (String verificationCode) {
+              _verifyOtp(verificationCode);
+            },
+          ),
+          const SizedBox(height: 30),
+          if (_isLoading)
+            const CircularProgressIndicator(color: Colors.green)
+          else
+            TextButton(
+              onPressed: () {
+                _handleSignup(); // Resend OTP
+              },
+              child: const Text("ওটিপি পাননি? পুনরায় পাঠান", 
+                style: TextStyle(color: Color(0xFF1B5E20), fontWeight: FontWeight.bold)),
+            ),
+          const SizedBox(height: 10),
+          TextButton(
+            onPressed: () => setState(() => _currentStep = 2),
+            child: const Text("নম্বর ভুল? পরিবর্তন করুন", style: TextStyle(color: Colors.grey)),
+          ),
+        ],
       ),
     );
   }
@@ -268,7 +359,7 @@ class _SignupScreenState extends State<SignupScreen> {
               children: [
                 Icon(Icons.security_outlined, size: 80, color: Colors.green.shade700),
                 const SizedBox(height: 10),
-                const Text("যোগাযোগ তথ্য", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                const Text("যোগাযোগ ও নিরাপত্তা", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                 const Text("আপনার সাথে যোগাযোগের জন্য তথ্য দিন", style: TextStyle(color: Colors.grey, fontSize: 12)),
               ],
             ),
@@ -286,7 +377,7 @@ class _SignupScreenState extends State<SignupScreen> {
             alignment: Alignment.center,
             child: Column(
               children: [
-                Text("নিরাপত্তা সেটআপ", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                Text("পাসওয়ার্ড সেটআপ", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                 Text("আপনার অ্যাকাউন্ট সুরক্ষিত রাখতে পাসওয়ার্ড দিন", style: TextStyle(color: Colors.grey, fontSize: 11)),
               ],
             ),
@@ -322,7 +413,7 @@ class _SignupScreenState extends State<SignupScreen> {
     );
   }
 
-  Widget _buildStep3() {
+  Widget _buildStepSuccess() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 25),
       child: Column(
@@ -504,7 +595,7 @@ class _SignupScreenState extends State<SignupScreen> {
         Text(label, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
         const SizedBox(height: 8),
         DropdownButtonFormField<String>(
-          value: value,
+          initialValue: value,
           items: items.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
           onChanged: onChanged,
           decoration: InputDecoration(
