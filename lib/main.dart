@@ -1,3 +1,4 @@
+import 'package:arnovproject/home_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -8,8 +9,8 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
   await Supabase.initialize(
-    url: 'https://hxjkomcynnbardxmooew.supabase.co', 
-    anonKey: 'sb_publishable_crNXvspOSPLc30yQHnWcoA_Ze8AwSDL'
+    url: 'https://qrjveldhzhtrybtjxpto.supabase.co',
+    anonKey: 'sb_publishable_8XEohR1PfPStN_WL40YRxw_vxLG70aU'
   );
 
   runApp(

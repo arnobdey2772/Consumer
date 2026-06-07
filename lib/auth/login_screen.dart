@@ -29,13 +29,15 @@ class _LoginScreenState extends State<LoginScreen> {
       loading = true;
     });
 
-    // Format phone number to E.164 (Bangladesh +88)
+    // Format phone number (Flexible formatting to match signup)
     String phoneNumber = _phoneController.text.trim();
     if (!phoneNumber.startsWith('+')) {
-      if (phoneNumber.startsWith('0')) {
+      if (phoneNumber.startsWith('01') && phoneNumber.length == 11) {
+        // বাংলাদেশের নম্বরের জন্য +৮৮ যোগ হবে
         phoneNumber = '+88$phoneNumber';
       } else {
-        phoneNumber = '+880$phoneNumber';
+        // অন্যান্য নম্বরের জন্য (যেমন আপনার ইউএস নম্বর) শুধু + যোগ হবে
+        phoneNumber = '+$phoneNumber';
       }
     }
 

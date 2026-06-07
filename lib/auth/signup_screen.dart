@@ -15,17 +15,20 @@ class _SignupScreenState extends State<SignupScreen> {
   final supabase = Supabase.instance.client;
   int _currentStep = 1;
   bool _isLoading = false;
+  bool _otpSent = false;
   String _tempPhoneNumber = "";
 
-  // Controllers for Step 1
-  final TextEditingController _nameBnController = TextEditingController();
-  final TextEditingController _nameEnController = TextEditingController();
+  // Controllers for Step 1 (Phone/OTP)
+  final TextEditingController _phoneController = TextEditingController();
+
+  // Controllers for Step 2 (Personal Info)
+  final TextEditingController _nameController = TextEditingController();
   final TextEditingController _nidController = TextEditingController();
   final TextEditingController _dobController = TextEditingController();
+  DateTime? _selectedDate;
   String? _selectedGender;
 
-  // Controllers for Step 2
-  final TextEditingController _phoneController = TextEditingController();
+  // Controllers for Step 3 (Contact & Security)
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _addressController = TextEditingController();
   String? _selectedDivision;
@@ -37,11 +40,10 @@ class _SignupScreenState extends State<SignupScreen> {
 
   @override
   void dispose() {
-    _nameBnController.dispose();
-    _nameEnController.dispose();
+    _phoneController.dispose();
+    _nameController.dispose();
     _nidController.dispose();
     _dobController.dispose();
-    _phoneController.dispose();
     _emailController.dispose();
     _addressController.dispose();
     _passwordController.dispose();
@@ -49,9 +51,81 @@ class _SignupScreenState extends State<SignupScreen> {
     super.dispose();
   }
 
+  // 1. Send OTP
+  Future<void> _sendOtp() async {
+    if (_phoneController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("দয়া করে মোবাইল নম্বর দিন")),
+      );
+      return;
+    }
+
+    setState(() => _isLoading = true);
+
+    String phoneNumber = _phoneController.text.trim();
+    
+    // নম্বর ফরম্যাটিং লজিক (ডেমো কোডের মতো ফ্লেক্সিবল করা হলো)
+    if (!phoneNumber.startsWith('+')) {
+      if (phoneNumber.startsWith('01') && phoneNumber.length == 11) {
+        // শুধুমাত্র বাংলাদেশের মোবাইল নম্বরের ক্ষেত্রে +৮৮ যোগ হবে
+        phoneNumber = '+88$phoneNumber';
+      } else {
+        // অন্যান্য নম্বরের ক্ষেত্রে (যেমন আপনার ইউএস নম্বর) শুধু + যোগ হবে
+        phoneNumber = '+$phoneNumber';
+      }
+    }
+    _tempPhoneNumber = phoneNumber;
+
+    try {
+      await supabase.auth.signInWithOtp(phone: phoneNumber);
+      setState(() {
+        _otpSent = true;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("ওটিপি পাঠানো হয়েছে")),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("ওটিপি পাঠাতে ব্যর্থ হয়েছে: ${e.toString()}")),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  // 2. Verify OTP
+  Future<void> _verifyOtp(String otpCode) async {
+    setState(() => _isLoading = true);
+    try {
+      final response = await supabase.auth.verifyOTP(
+        phone: _tempPhoneNumber,
+        token: otpCode,
+        type: OtpType.sms,
+      );
+
+      if (response.session != null) {
+        setState(() {
+          _currentStep = 2;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("ভুল ওটিপি, আবার চেষ্টা করুন")),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
   void _nextStep() {
-    if (_currentStep == 1) {
-      if (_nameBnController.text.isEmpty || _nidController.text.isEmpty || _dobController.text.isEmpty || _selectedGender == null) {
+    if (_currentStep == 2) {
+      if (_nameController.text.isEmpty || _nidController.text.isEmpty || _selectedDate == null || _selectedGender == null) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("দয়া করে সব বাধ্যতামূলক তথ্য দিন")),
         );
@@ -65,8 +139,9 @@ class _SignupScreenState extends State<SignupScreen> {
     });
   }
 
+  // Final Registration Step
   Future<void> _handleSignup() async {
-    if (_phoneController.text.isEmpty || _addressController.text.isEmpty || _selectedDivision == null || _passwordController.text.isEmpty) {
+    if (_addressController.text.isEmpty || _selectedDivision == null || _passwordController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("দয়া করে সব বাধ্যতামূলক তথ্য দিন")),
       );
@@ -82,68 +157,35 @@ class _SignupScreenState extends State<SignupScreen> {
 
     setState(() => _isLoading = true);
 
-    // Format phone number to E.164 (Bangladesh +88)
-    String phoneNumber = _phoneController.text.trim();
-    if (!phoneNumber.startsWith('+')) {
-      if (phoneNumber.startsWith('0')) {
-        phoneNumber = '+88$phoneNumber';
-      } else {
-        phoneNumber = '+880$phoneNumber';
-      }
-    }
-    _tempPhoneNumber = phoneNumber;
-
     try {
-      // Step 1: Sign up user. This will trigger OTP if configured in Supabase.
-      await supabase.auth.signUp(
-        phone: phoneNumber,
-        password: _passwordController.text,
-        data: {
-          'full_name_bn': _nameBnController.text,
-          'full_name_en': _nameEnController.text,
-          'nid': _nidController.text,
-          'dob': _dobController.text,
-          'gender': _selectedGender,
-          'address': _addressController.text,
-          'division': _selectedDivision,
-          'email': _emailController.text,
-        },
+      // 1. Update user password (as they are already authenticated via OTP)
+      await supabase.auth.updateUser(
+        UserAttributes(password: _passwordController.text),
       );
 
-      // Transition to OTP Step
+      final String userId = supabase.auth.currentUser!.id;
+
+      // 2. Database Upsert using SQL schema
+      await supabase.from('profiles').upsert({
+        'id': userId,
+        'full_name': _nameController.text,
+        'nid_number': _nidController.text,
+        'date_of_birth': _selectedDate?.toIso8601String().split('T')[0], // YYYY-MM-DD format
+        'gender': _selectedGender,
+        'phone_number': _tempPhoneNumber,
+        'email': _emailController.text.isEmpty ? null : _emailController.text,
+        'address': _addressController.text,
+        'division': _selectedDivision,
+      });
+
       setState(() {
-        _currentStep = 3;
+        _currentStep = 4;
       });
       
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text("রেজিস্ট্রেশন ব্যর্থ হয়েছে: ${e.toString()}")),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
-  }
-
-  Future<void> _verifyOtp(String otpCode) async {
-    setState(() => _isLoading = true);
-    try {
-      final response = await supabase.auth.verifyOTP(
-        phone: _tempPhoneNumber,
-        token: otpCode,
-        type: OtpType.sms,
-      );
-
-      if (response.session != null) {
-        setState(() {
-          _currentStep = 4; // Move to Success Step
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("ওটিপি সঠিক নয়: ${e.toString()}")),
         );
       }
     } finally {
@@ -171,7 +213,7 @@ class _SignupScreenState extends State<SignupScreen> {
               )
             : null,
         title: Text(
-          _currentStep == 1 ? "ব্যক্তিগত তথ্য" : (_currentStep == 2 ? "যোগাযোগ ও নিরাপত্তা" : (_currentStep == 3 ? "ভেরিফিকেশন" : "সম্পন্ন")),
+          _currentStep == 1 ? "ভেরিফিকেশন" : (_currentStep == 2 ? "ব্যক্তিগত তথ্য" : (_currentStep == 3 ? "যোগাযোগ ও নিরাপত্তা" : "সম্পন্ন")),
           style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 18),
         ),
         centerTitle: true,
@@ -184,23 +226,23 @@ class _SignupScreenState extends State<SignupScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 10),
                 child: Row(
                   children: [
-                    _buildStepCircle(1, "ব্যক্তিগত", _currentStep >= 1),
+                    _buildStepCircle(1, "ওটিপি", _currentStep >= 1),
                     _buildStepLine(_currentStep >= 2),
-                    _buildStepCircle(2, "নিরাপত্তা", _currentStep >= 2),
+                    _buildStepCircle(2, "ব্যক্তিগত", _currentStep >= 2),
                     _buildStepLine(_currentStep >= 3),
-                    _buildStepCircle(3, "ওটিপি", _currentStep >= 3),
+                    _buildStepCircle(3, "নিরাপত্তা", _currentStep >= 3),
                     _buildStepLine(_currentStep >= 4),
                     _buildStepCircle(4, "সম্পন্ন", _currentStep >= 4),
                   ],
                 ),
               ),
             const SizedBox(height: 20),
-            if (_currentStep == 1) _buildStep1(),
-            if (_currentStep == 2) _buildStep2(),
-            if (_currentStep == 3) _buildStepOtp(),
+            if (_currentStep == 1) _buildStepOtp(),
+            if (_currentStep == 2) _buildStepPersonalInfo(),
+            if (_currentStep == 3) _buildStepSecurity(),
             if (_currentStep == 4) _buildStepSuccess(),
             const SizedBox(height: 20),
-            if (_currentStep < 3)
+            if (_currentStep < 4)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: Container(
@@ -239,56 +281,97 @@ class _SignupScreenState extends State<SignupScreen> {
     );
   }
 
+  // STEP 1: Phone and OTP Verification
   Widget _buildStepOtp() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Column(
         children: [
-          Center(
-            child: Column(
-              children: [
-                Icon(Icons.vibration_outlined, size: 80, color: Colors.green.shade700),
-                const SizedBox(height: 10),
-                const Text("আপনার ফোন চেক করুন", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 5),
-                Text("$_tempPhoneNumber নম্বরে একটি ওটিপি পাঠানো হয়েছে", 
-                   textAlign: TextAlign.center,
-                   style: const TextStyle(color: Colors.grey, fontSize: 13)),
-              ],
+          if (!_otpSent) ...[
+            Center(
+              child: Column(
+                children: [
+                  Icon(Icons.phone_android_outlined, size: 80, color: Colors.green.shade700),
+                  const SizedBox(height: 10),
+                  const Text("মোবাইল নম্বর যাচাই", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  const Text("আপনার সচল মোবাইল নম্বরটি দিন", style: TextStyle(color: Colors.grey, fontSize: 12)),
+                ],
+              ),
             ),
-          ),
-          const SizedBox(height: 40),
-          OtpTextField(
-            numberOfFields: 6,
-            borderColor: const Color(0xFF1B5E20),
-            focusedBorderColor: const Color(0xFF1B5E20),
-            showFieldAsBox: true,
-            onSubmit: (String verificationCode) {
-              _verifyOtp(verificationCode);
-            },
-          ),
-          const SizedBox(height: 30),
-          if (_isLoading)
-            const CircularProgressIndicator(color: Colors.green)
-          else
-            TextButton(
-              onPressed: () {
-                _handleSignup(); // Resend OTP
+            const SizedBox(height: 30),
+            _buildTextField("মোবাইল নম্বর *", "01XXXXXXXXX", Icons.phone_outlined, controller: _phoneController, keyboardType: TextInputType.phone),
+            const SizedBox(height: 30),
+            SizedBox(
+              width: double.infinity,
+              height: 50,
+              child: ElevatedButton(
+                onPressed: _isLoading ? null : _sendOtp,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF1B5E20),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                child: _isLoading 
+                  ? const CircularProgressIndicator(color: Colors.white)
+                  : const Text("ওটিপি পাঠান", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+              ),
+            ),
+          ] else ...[
+            Center(
+              child: Column(
+                children: [
+                  Icon(Icons.vibration_outlined, size: 80, color: Colors.green.shade700),
+                  const SizedBox(height: 10),
+                  const Text("ওটিপি কোড দিন", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 5),
+                  Text("$_tempPhoneNumber নম্বরে একটি ওটিপি পাঠানো হয়েছে", 
+                     textAlign: TextAlign.center,
+                     style: const TextStyle(color: Colors.grey, fontSize: 13)),
+                ],
+              ),
+            ),
+            const SizedBox(height: 40),
+            OtpTextField(
+              numberOfFields: 6,
+              borderColor: const Color(0xFF1B5E20),
+              focusedBorderColor: const Color(0xFF1B5E20),
+              showFieldAsBox: true,
+              onSubmit: (String verificationCode) {
+                _verifyOtp(verificationCode);
               },
-              child: const Text("ওটিপি পাননি? পুনরায় পাঠান", 
-                style: TextStyle(color: Color(0xFF1B5E20), fontWeight: FontWeight.bold)),
             ),
-          const SizedBox(height: 10),
-          TextButton(
-            onPressed: () => setState(() => _currentStep = 2),
-            child: const Text("নম্বর ভুল? পরিবর্তন করুন", style: TextStyle(color: Colors.grey)),
+            const SizedBox(height: 30),
+            if (_isLoading)
+              const CircularProgressIndicator(color: Colors.green)
+            else
+              TextButton(
+                onPressed: _sendOtp,
+                child: const Text("ওটিপি পাননি? পুনরায় পাঠান", 
+                  style: TextStyle(color: Color(0xFF1B5E20), fontWeight: FontWeight.bold)),
+              ),
+            const SizedBox(height: 10),
+            TextButton(
+              onPressed: () => setState(() => _otpSent = false),
+              child: const Text("নম্বর ভুল? পরিবর্তন করুন", style: TextStyle(color: Colors.grey)),
+            ),
+          ],
+          const SizedBox(height: 20),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Text("ইতোমধ্যে অ্যাকাউন্ট আছে? ", style: TextStyle(color: Colors.grey)),
+              GestureDetector(
+                onTap: () => Navigator.pop(context),
+                child: const Text("লগইন করুন", style: TextStyle(color: Color(0xFF1B5E20), fontWeight: FontWeight.bold)),
+              ),
+            ],
           ),
         ],
       ),
     );
   }
 
-  Widget _buildStep1() {
+  // STEP 2: Personal Info (Name, NID, DOB, Gender)
+  Widget _buildStepPersonalInfo() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Column(
@@ -304,9 +387,7 @@ class _SignupScreenState extends State<SignupScreen> {
             ),
           ),
           const SizedBox(height: 30),
-          _buildTextField("নাম (বাংলায়) *", "আপনার পূর্ণ নাম লিখুন", Icons.person_outline, controller: _nameBnController),
-          const SizedBox(height: 15),
-          _buildTextField("নাম (ইংরেজিতে)", "আপনার নাম লিখুন (ঐচ্ছিক)", Icons.person_outline, controller: _nameEnController),
+          _buildTextField("আপনার নাম *", "আপনার পূর্ণ নাম লিখুন", Icons.person_outline, controller: _nameController),
           const SizedBox(height: 15),
           _buildTextField("জাতীয় পরিচয়পত্র নম্বর (NID) *", "আপনার NID নম্বর লিখুন", Icons.badge_outlined, controller: _nidController, keyboardType: TextInputType.number),
           const SizedBox(height: 15),
@@ -333,23 +414,13 @@ class _SignupScreenState extends State<SignupScreen> {
               ),
             ),
           ),
-          const SizedBox(height: 20),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Text("ইতোমধ্যে অ্যাকাউন্ট আছে? ", style: TextStyle(color: Colors.grey)),
-              GestureDetector(
-                onTap: () => Navigator.pop(context),
-                child: const Text("লগইন করুন", style: TextStyle(color: Color(0xFF1B5E20), fontWeight: FontWeight.bold)),
-              ),
-            ],
-          ),
         ],
       ),
     );
   }
 
-  Widget _buildStep2() {
+  // STEP 3: Security & Contact (Email, Address, Division, Password)
+  Widget _buildStepSecurity() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Column(
@@ -365,8 +436,6 @@ class _SignupScreenState extends State<SignupScreen> {
             ),
           ),
           const SizedBox(height: 30),
-          _buildTextField("মোবাইল নম্বর *", "01XXXXXXXXX", Icons.phone_outlined, controller: _phoneController, keyboardType: TextInputType.phone),
-          const SizedBox(height: 15),
           _buildTextField("ইমেইল (ঐচ্ছিক)", "example@gmail.com", Icons.email_outlined, controller: _emailController, keyboardType: TextInputType.emailAddress),
           const SizedBox(height: 15),
           _buildTextField("ঠিকানা *", "বিস্তারিত ঠিকানা লিখুন", Icons.location_on_outlined, controller: _addressController),
@@ -413,6 +482,7 @@ class _SignupScreenState extends State<SignupScreen> {
     );
   }
 
+  // STEP 4: Success
   Widget _buildStepSuccess() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 25),
@@ -442,9 +512,9 @@ class _SignupScreenState extends State<SignupScreen> {
               children: [
                 const Text("অ্যাকাউন্ট তথ্য", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                 const SizedBox(height: 20),
-                _buildInfoRow(Icons.person, "নাম", _nameBnController.text),
+                _buildInfoRow(Icons.person, "নাম", _nameController.text),
                 const SizedBox(height: 15),
-                _buildInfoRow(Icons.phone, "মোবাইল নম্বর", _phoneController.text),
+                _buildInfoRow(Icons.phone, "মোবাইল নম্বর", _tempPhoneNumber),
                 const SizedBox(height: 15),
                 _buildInfoRow(Icons.email, "ইমেইল", _emailController.text.isEmpty ? "দেওয়া হয়নি" : _emailController.text),
                 const SizedBox(height: 15),
@@ -477,6 +547,7 @@ class _SignupScreenState extends State<SignupScreen> {
     );
   }
 
+  // Helper Widgets
   Widget _buildInfoRow(IconData icon, String label, String value) {
     return Row(
       children: [
@@ -570,9 +641,17 @@ class _SignupScreenState extends State<SignupScreen> {
           controller: controller,
           readOnly: true,
           onTap: () async {
-            DateTime? picked = await showDatePicker(context: context, initialDate: DateTime(2000), firstDate: DateTime(1900), lastDate: DateTime.now());
+            DateTime? picked = await showDatePicker(
+              context: context, 
+              initialDate: DateTime(2000), 
+              firstDate: DateTime(1900), 
+              lastDate: DateTime.now()
+            );
             if (picked != null) {
-              setState(() => controller?.text = "${picked.day}/${picked.month}/${picked.year}");
+              setState(() {
+                _selectedDate = picked;
+                controller?.text = "${picked.day}/${picked.month}/${picked.year}";
+              });
             }
           },
           decoration: InputDecoration(
@@ -595,7 +674,7 @@ class _SignupScreenState extends State<SignupScreen> {
         Text(label, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
         const SizedBox(height: 8),
         DropdownButtonFormField<String>(
-          initialValue: value,
+          value: value,
           items: items.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
           onChanged: onChanged,
           decoration: InputDecoration(
